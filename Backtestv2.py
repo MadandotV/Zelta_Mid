@@ -1,150 +1,177 @@
 import pandas as pd
 import numpy as np
+from scipy import stats
 
 def calculate_sharpe_ratio(returns, risk_free_rate=0.07):
     """Calculate the Sharpe Ratio."""
     excess_returns = np.array(returns) - risk_free_rate
     return excess_returns.mean() / excess_returns.std(ddof=1)
 
-def benchmark_returns(signals, brokerage_cost=0.001):
-    """Calculate benchmark returns based on signal changes."""
-    returns = []
+
+def calculate_sortino_ratio(returns, risk_free_rate=0.07, target_return=0):
+    """Calculate the Sortino Ratio."""
+    excess_returns = np.array(returns) - risk_free_rate
+    downside_returns = excess_returns[excess_returns < target_return]
+    if len(downside_returns) == 0:
+        return np.inf  # No downside risk
+    downside_std = np.std(downside_returns, ddof=1)
+    if downside_std == 0:
+        return np.inf  # To handle division by zero
+    return (np.mean(excess_returns) - target_return) / downside_std
+
+def calculate_max_drawdown(portfolio_values):
+    """Calculate the maximum drawdown."""
+    peak = portfolio_values[0]
+    max_drawdown = 0
+    for value in portfolio_values:
+        if value > peak:
+            peak = value
+        drawdown = (peak - value) / peak
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+    return max_drawdown
+
+def benchmark_returns(signals, initial_investment=1000, brokerage_cost=0.001, risk_free_rate=0.07):
+    """Calculate benchmark returns based on signal changes with improved accuracy and additional metrics."""
+    portfolio_value = initial_investment
+    portfolio_values = [initial_investment]
     year_wise_returns = {}
-    initial_investment = 1000  # You can adjust this value as needed
-    position = 0  # Current position (0 = no position, 1 = holding a buy position, -1 = holding a sell position)
-    entry_price = 0  # Price at which we entered the position
+    position = 0
+    entry_price = 0
+    entry_time = None
 
     total_trades = 0
     winning_trades = 0
     losing_trades = 0
-    total_profit = 0
-    total_loss = 0
     profit_trades = []
     loss_trades = []
+    holding_durations = []
+    trade_returns = []
 
-    # Iterate over the signals to evaluate changes in signal values
+    largest_winning_trade = 0
+    largest_losing_trade = 0
+    gross_profit = 0
+    gross_loss = 0
+
     for i in range(1, len(signals)):
         current_signal = signals['signal'].iloc[i]
         prev_signal = signals['signal'].iloc[i - 1]
         current_date = signals.index[i]
+        current_price = signals['close'].iloc[i]
 
-        # Handle transitions from 1 to -1 (or -1 to 1)
-        if current_signal == -1 and prev_signal == 1 and position == 1:
-            # Close the long position and open a short
-            exit_price = signals['close'].iloc[i] * (1 - brokerage_cost)
-            trade_return = (exit_price - entry_price) / entry_price
-            returns.append(trade_return)
-            total_trades += 1
+        # Handle position changes
+        if current_signal != prev_signal or (current_signal == 0 and position != 0):
+            # Close existing position if any
+            if position != 0:
+                exit_price = current_price * (1 - brokerage_cost)
+                trade_return = (exit_price / entry_price - 1) if position == 1 else (1 - exit_price / entry_price)
+                portfolio_value *= (1 + trade_return)
+                portfolio_values.append(portfolio_value)
+                total_trades += 1
+                trade_returns.append(trade_return)
 
-            # Classify trade
-            if trade_return > 0:
-                winning_trades += 1
-                total_profit += trade_return
-                profit_trades.append(trade_return)
+                # Calculate holding duration
+                holding_duration = (current_date - entry_time).total_seconds() / 3600  # in hours
+                holding_durations.append(holding_duration)
+
+                # Classify trade
+                if trade_return > 0:
+                    winning_trades += 1
+                    profit_trades.append(trade_return)
+                    gross_profit += trade_return * portfolio_value
+                    largest_winning_trade = max(largest_winning_trade, trade_return)
+                else:
+                    losing_trades += 1
+                    loss_trades.append(trade_return)
+                    gross_loss += abs(trade_return * portfolio_value)
+                    largest_losing_trade = min(largest_losing_trade, trade_return)
+
+                # Yearly performance tracking
+                year = current_date.year
+                if year not in year_wise_returns:
+                    year_wise_returns[year] = 1
+                year_wise_returns[year] *= (1 + trade_return)
+
+            # Open new position if signal is non-zero
+            if current_signal != 0:
+                entry_price = current_price * (1 + brokerage_cost)
+                position = current_signal
+                entry_time = current_date
             else:
-                losing_trades += 1
-                total_loss += trade_return
-                loss_trades.append(trade_return)
+                position = 0
 
-            # Enter new short position
-            entry_price = signals['close'].iloc[i] * (1 + brokerage_cost)
-            position = -1  # Update to short
+        else:
+            # Update portfolio value for the current price
+            portfolio_values.append(portfolio_value * (current_price / signals['close'].iloc[i-1]))
 
-        elif current_signal == 1 and prev_signal == -1 and position == -1:
-            # Close the short position and open a long
-            exit_price = signals['close'].iloc[i] * (1 - brokerage_cost)
-            trade_return = (entry_price - exit_price) / entry_price  # Reverse for short position
-            returns.append(trade_return)
-            total_trades += 1
-
-            # Classify trade
-            if trade_return > 0:
-                winning_trades += 1
-                total_profit += trade_return
-                profit_trades.append(trade_return)
-            else:
-                losing_trades += 1
-                total_loss += trade_return
-                loss_trades.append(trade_return)
-
-            # Enter new long position
-            entry_price = signals['close'].iloc[i] * (1 + brokerage_cost)
-            position = 1  # Update to long
-
-        # If signal changes from 0 to non-zero (enter position)
-        elif current_signal != 0 and position == 0:
-            entry_price = signals['close'].iloc[i] * (1 + brokerage_cost)
-            position = current_signal  # Track if we are entering a buy (1) or sell (-1)
-
-        # If signal changes from non-zero to 0 (exit position)
-        elif current_signal == 0 and position != 0:
-            exit_price = signals['close'].iloc[i] * (1 - brokerage_cost)
-            trade_return = (exit_price - entry_price) / entry_price
-            if position == -1:
-                trade_return = -trade_return  # Reverse return calculation for short trades
-            
-            returns.append(trade_return)  # Record return
-            total_trades += 1
-            position = 0  # Reset position
-
-            # Classify trade as profit or loss
-            if trade_return > 0:
-                winning_trades += 1
-                total_profit += trade_return
-                profit_trades.append(trade_return)
-            else:
-                losing_trades += 1
-                total_loss += trade_return
-                loss_trades.append(trade_return)
-
-            # Yearly performance tracking
-            year = current_date.year
-            if year not in year_wise_returns:
-                year_wise_returns[year] = 0
-            year_wise_returns[year] += (exit_price - entry_price)
-
-    # If still holding a position at the end of the data, exit at the last price
+    # Close any remaining position at the end
     if position != 0:
         exit_price = signals['close'].iloc[-1] * (1 - brokerage_cost)
-        trade_return = (exit_price - entry_price) / entry_price
-        if position == -1:
-            trade_return = -trade_return  # Reverse return for short
-        returns.append(trade_return)  # Final return
+        trade_return = (exit_price / entry_price - 1) if position == 1 else (1 - exit_price / entry_price)
+        portfolio_value *= (1 + trade_return)
+        portfolio_values.append(portfolio_value)
         total_trades += 1
+        trade_returns.append(trade_return)
+
+        holding_duration = (signals.index[-1] - entry_time).total_seconds() / 3600  # in hours
+        holding_durations.append(holding_duration)
+
         if trade_return > 0:
             winning_trades += 1
-            total_profit += trade_return
             profit_trades.append(trade_return)
+            gross_profit += trade_return * portfolio_value
+            largest_winning_trade = max(largest_winning_trade, trade_return)
         else:
             losing_trades += 1
-            total_loss += trade_return
             loss_trades.append(trade_return)
+            gross_loss += abs(trade_return * portfolio_value)
+            largest_losing_trade = min(largest_losing_trade, trade_return)
 
-    # Calculate cumulative return
-    cumulative_return = (1 + pd.Series(returns)).prod() - 1
-    total_return = initial_investment * (1 + cumulative_return)
+        year = signals.index[-1].year
+        if year not in year_wise_returns:
+            year_wise_returns[year] = 1
+        year_wise_returns[year] *= (1 + trade_return)
 
-    # Calculate Sharpe Ratio
-    sharpe_ratio = calculate_sharpe_ratio(returns)
+    # Calculate overall return
+    overall_return = (portfolio_value / initial_investment) - 1
 
-    # Average profit/loss per trade
-    avg_profit_per_trade = total_profit / winning_trades if winning_trades > 0 else 0
-    avg_loss_per_trade = total_loss / losing_trades if losing_trades > 0 else 0
+    # Calculate Sharpe and Sortino Ratios
+    sharpe_ratio = calculate_sharpe_ratio(trade_returns, risk_free_rate)
+    sortino_ratio = calculate_sortino_ratio(trade_returns, risk_free_rate)
 
-    # Output results
-    print(f"Total Portfolio Value after Benchmarking: ${total_return:.2f}")
-    print(f"Cumulative Return: {cumulative_return:.2%}")
+    # Calculate max drawdown
+    max_drawdown = calculate_max_drawdown(portfolio_values)
+
+    # Calculate average holding duration
+    avg_holding_duration = sum(holding_durations) / len(holding_durations) if holding_durations else 0
+
+    # Print results
+    print(f"Total Portfolio Value: ${portfolio_value:.2f}")
+    print(f"Overall Return: {overall_return:.2%}")
     print(f"Total Trades: {total_trades}")
     print(f"Winning Trades: {winning_trades}")
     print(f"Losing Trades: {losing_trades}")
-    print(f"Average Profit per Trade: {avg_profit_per_trade:.2%}")
-    print(f"Average Loss per Trade: {avg_loss_per_trade:.2%}")
+    print(f"Win Rate: {winning_trades / total_trades:.2%}" if total_trades else "No trades")
+    print(f"Average Profit per Winning Trade: {sum(profit_trades) / winning_trades:.2%}" if winning_trades else "No winning trades")
+    print(f"Average Loss per Losing Trade: {sum(loss_trades) / losing_trades:.2%}" if losing_trades else "No losing trades")
+    print(f"Largest Winning Trade: {largest_winning_trade:.2%}")
+    print(f"Largest Losing Trade: {largest_losing_trade:.2%}")
+    print(f"Gross Profit: ${gross_profit:.2f}")
+    print(f"Gross Loss: ${gross_loss:.2f}")
+    print(f"Profit Factor: {gross_profit / abs(gross_loss):.2f}" if gross_loss != 0 else "Infinite")
+    print(f"Average Holding Duration: {avg_holding_duration:.2f} hours")
     print(f"Sharpe Ratio: {sharpe_ratio:.2f}")
+    print(f"Sortino Ratio: {sortino_ratio:.2f}")
+    print(f"Maximum Drawdown: {max_drawdown:.2%}")
 
     print("\nYear-wise Returns:")
-    for year, profit in year_wise_returns.items():
-        print(f"{year}: ${profit:.2f}")
+    for year, year_return in year_wise_returns.items():
+        print(f"{year}: {year_return - 1:.2%}")
 
+    return (portfolio_value, overall_return, total_trades, winning_trades, losing_trades, 
+            sharpe_ratio, sortino_ratio, max_drawdown, avg_holding_duration, 
+            largest_winning_trade, largest_losing_trade, gross_profit, gross_loss, 
+            year_wise_returns)
 if __name__ == "__main__":
     # Load signals for benchmarking
     signals_path = 'D:/QuantStuff/btcusdt_3m_with_signals.csv'
