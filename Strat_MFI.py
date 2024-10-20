@@ -63,6 +63,7 @@ class EnhancedMFI_RSI_MACD_Stochastic_Strategy:
         self.calculate_rsi()
         self.calculate_macd()
         self.calculate_stochastic()
+        x=0.001975
 
         # Detect divergences
         rsi_bull_div, rsi_bear_div = self.detect_divergence(self.data['close'], self.data['rsi'])
@@ -72,24 +73,33 @@ class EnhancedMFI_RSI_MACD_Stochastic_Strategy:
         macd_crossover_up, macd_crossover_down = self.detect_crossover(self.data['macd'], self.data['signal_line'])
         stoch_crossover_up, stoch_crossover_down = self.detect_crossover(self.data['stoch_k'], self.data['stoch_d'])
 
+        current_signal = 0
         for i in range(1, len(self.data)):
-           # Generate signals with adjusted thresholds
-           if ((self.data['mfi'].iloc[i] < 35) and (self.data['rsi'].iloc[i] < 35) and 
-               macd_crossover_up.iloc[i] and (self.data['stoch_k'].iloc[i] < 25) and 
-               (rsi_bull_div.iloc[i] or macd_bull_div.iloc[i])) or \
-              ((self.data['mfi'].iloc[i] < 45) and (self.data['rsi'].iloc[i] < 45) and 
-               macd_crossover_up.iloc[i] and stoch_crossover_up.iloc[i]):
-               self.signals.at[self.signals.index[i], 'signal'] = 1   # Buy signal
+            # Check for buy signal
+            if ((self.data['mfi'].iloc[i] < 35) and (self.data['rsi'].iloc[i] < 35) and 
+                macd_crossover_up.iloc[i] and (self.data['stoch_k'].iloc[i] < 25) and 
+                (rsi_bull_div.iloc[i] or macd_bull_div.iloc[i])) or \
+               ((self.data['mfi'].iloc[i] < 45) and (self.data['rsi'].iloc[i] < 45) and 
+                macd_crossover_up.iloc[i] and stoch_crossover_up.iloc[i]):
+                current_signal = 1  # Set buy signal
 
-           elif ((self.data['mfi'].iloc[i] > 65) and (self.data['rsi'].iloc[i] > 65) and 
-                 macd_crossover_down.iloc[i] and (self.data['stoch_k'].iloc[i] > 75) and 
-                 (rsi_bear_div.iloc[i] or macd_bear_div.iloc[i])) or \
-                ((self.data['mfi'].iloc[i] > 55) and (self.data['rsi'].iloc[i] > 55) and 
-                 macd_crossover_down.iloc[i] and stoch_crossover_down.iloc[i]):
-               self.signals.at[self.signals.index[i], 'signal'] = -1  # Sell signal
-           
-           else:
-               self.signals.at[self.signals.index[i], 'signal'] = 0   # No signal
+            # Check for sell signal
+            elif ((self.data['mfi'].iloc[i] > 65) and (self.data['rsi'].iloc[i] > 65) and 
+                  macd_crossover_down.iloc[i] and (self.data['stoch_k'].iloc[i] > 75) and 
+                  (rsi_bear_div.iloc[i] or macd_bear_div.iloc[i])) or \
+                 ((self.data['mfi'].iloc[i] > 55) and (self.data['rsi'].iloc[i] > 55) and 
+                  macd_crossover_down.iloc[i] and stoch_crossover_down.iloc[i]):
+                current_signal = -1  # Set sell signal
+
+            # Check for potential dip (when in a buy position)
+            elif current_signal == 1 and self.data['close'].iloc[i] < self.data['close'].iloc[i-1] * (1-x):  # 0.5% drop
+                current_signal = 0  # Reset signal on potential dip
+
+            # Check for potential rise (when in a sell position)
+            elif current_signal == -1 and self.data['close'].iloc[i] > self.data['close'].iloc[i-1] * (1+x):  # 0.5% rise
+                current_signal = 0  # Reset signal on potential rise
+
+            self.signals.at[self.signals.index[i], 'signal'] = current_signal
 
     def save_signals(self, output_file):
         """Save the signals along with OHLCV data to a CSV file."""
