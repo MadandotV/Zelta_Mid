@@ -120,8 +120,7 @@ class EnhancedMFI_RSI_MACD_Stochastic_Strategy:
                 
                 # Check exit conditions
                 if (self.data['close'].iloc[i] <= trailing_stop or  # Trailing stop hit
-                    self.data['close'].iloc[i] >= entry_price + (atr_multiple * self.data['atr'].iloc[i]) or  # Take profit hit
-                    self.data['close'].iloc[i] < self.data['ma'].iloc[i]):  # Price crosses below MA
+                    self.data['close'].iloc[i] >= entry_price + (atr_multiple * self.data['atr'].iloc[i])):  # Price crosses below MA
                     current_signal = 0
                     self.signals.at[self.signals.index[i], 'exit_price'] = self.data['close'].iloc[i]
 
@@ -131,8 +130,7 @@ class EnhancedMFI_RSI_MACD_Stochastic_Strategy:
                 
                 # Check exit conditions
                 if (self.data['close'].iloc[i] >= trailing_stop or  # Trailing stop hit
-                    self.data['close'].iloc[i] <= entry_price - (atr_multiple * self.data['atr'].iloc[i]) or  # Take profit hit
-                    self.data['close'].iloc[i] > self.data['ma'].iloc[i]):  # Price crosses above MA
+                    self.data['close'].iloc[i] <= entry_price - (atr_multiple * self.data['atr'].iloc[i]) ):  # Price crosses above MA
                     current_signal = 0
                     self.signals.at[self.signals.index[i], 'exit_price'] = self.data['close'].iloc[i]
 
