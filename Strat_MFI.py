@@ -63,7 +63,7 @@ class EnhancedMFI_RSI_MACD_Stochastic_Strategy:
         self.calculate_rsi()
         self.calculate_macd()
         self.calculate_stochastic()
-        x=0.001975
+        drop_factor=0.001975
 
         # Detect divergences
         rsi_bull_div, rsi_bear_div = self.detect_divergence(self.data['close'], self.data['rsi'])
@@ -92,11 +92,11 @@ class EnhancedMFI_RSI_MACD_Stochastic_Strategy:
                 current_signal = -1  # Set sell signal
 
             # Check for potential dip (when in a buy position)
-            elif current_signal == 1 and self.data['close'].iloc[i] < self.data['close'].iloc[i-1] * (1-x):  # 0.5% drop
+            elif current_signal == 1 and self.data['close'].iloc[i] < self.data['close'].iloc[i-1] * (1-drop_factor):  # 0.5% drop
                 current_signal = 0  # Reset signal on potential dip
 
             # Check for potential rise (when in a sell position)
-            elif current_signal == -1 and self.data['close'].iloc[i] > self.data['close'].iloc[i-1] * (1+x):  # 0.5% rise
+            elif current_signal == -1 and self.data['close'].iloc[i] > self.data['close'].iloc[i-1] * (1+drop_factor):  # 0.5% rise
                 current_signal = 0  # Reset signal on potential rise
 
             self.signals.at[self.signals.index[i], 'signal'] = current_signal
